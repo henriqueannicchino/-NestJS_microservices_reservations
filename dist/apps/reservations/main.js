@@ -18,11 +18,12 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a, _b;
+var _a, _b, _c;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.CreateReservationDto = void 0;
 const class_transformer_1 = __webpack_require__(/*! class-transformer */ "class-transformer");
 const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
+const common_1 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 class CreateReservationDto {
 }
 exports.CreateReservationDto = CreateReservationDto;
@@ -37,15 +38,12 @@ __decorate([
     __metadata("design:type", typeof (_b = typeof Date !== "undefined" && Date) === "function" ? _b : Object)
 ], CreateReservationDto.prototype, "endDate", void 0);
 __decorate([
-    (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsNotEmpty)(),
-    __metadata("design:type", String)
-], CreateReservationDto.prototype, "placeId", void 0);
-__decorate([
-    (0, class_validator_1.IsString)(),
-    (0, class_validator_1.IsNotEmpty)(),
-    __metadata("design:type", String)
-], CreateReservationDto.prototype, "invoiceId", void 0);
+    (0, class_validator_1.IsDefined)(),
+    (0, class_validator_1.IsNotEmptyObject)(),
+    (0, class_validator_1.ValidateNested)(),
+    (0, class_transformer_1.Type)(() => common_1.CreateChargeDto),
+    __metadata("design:type", typeof (_c = typeof common_1.CreateChargeDto !== "undefined" && common_1.CreateChargeDto) === "function" ? _c : Object)
+], CreateReservationDto.prototype, "charge", void 0);
 
 
 /***/ }),
@@ -108,10 +106,6 @@ __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", String)
 ], ReservationDocument.prototype, "userId", void 0);
-__decorate([
-    (0, mongoose_1.Prop)(),
-    __metadata("design:type", String)
-], ReservationDocument.prototype, "placeId", void 0);
 __decorate([
     (0, mongoose_1.Prop)(),
     __metadata("design:type", String)
@@ -261,6 +255,10 @@ exports.ReservationsModule = ReservationsModule = __decorate([
                 validationSchema: Joi.object({
                     MONGODB_URI: Joi.string().required(),
                     PORT: Joi.number().required(),
+                    AUTH_HOST: Joi.string().required(),
+                    PAYMENTS_HOST: Joi.string().required(),
+                    AUTH_PORT: Joi.string().required(),
+                    PAYMENTS_PORT: Joi.string().required(),
                 })
             }),
             microservices_1.ClientsModule.registerAsync([
@@ -274,7 +272,18 @@ exports.ReservationsModule = ReservationsModule = __decorate([
                         }
                     }),
                     inject: [config_1.ConfigService]
-                }
+                },
+                {
+                    name: common_2.PAYMENTS_SERVICE,
+                    useFactory: (configService) => ({
+                        transport: microservices_1.Transport.TCP,
+                        options: {
+                            host: configService.get('PAYMENTS_HOST'),
+                            port: configService.get('PAYMENTS_PORT'),
+                        }
+                    }),
+                    inject: [config_1.ConfigService]
+                },
             ])
         ],
         controllers: [reservations_controller_1.ReservationsController],
@@ -345,39 +354,52 @@ var __decorate = (this && this.__decorate) || function (decorators, target, key,
 var __metadata = (this && this.__metadata) || function (k, v) {
     if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
 };
-var _a;
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+};
+var _a, _b;
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.ReservationsService = void 0;
 const common_1 = __webpack_require__(/*! @nestjs/common */ "@nestjs/common");
+const common_2 = __webpack_require__(/*! @app/common */ "./libs/common/src/index.ts");
 const reservations_repository_1 = __webpack_require__(/*! ./reservations.repository */ "./apps/reservations/src/reservations.repository.ts");
+const microservices_1 = __webpack_require__(/*! @nestjs/microservices */ "@nestjs/microservices");
+const rxjs_1 = __webpack_require__(/*! rxjs */ "rxjs");
 let ReservationsService = class ReservationsService {
-    constructor(reservationRepository) {
+    constructor(reservationRepository, paymentsService) {
         this.reservationRepository = reservationRepository;
+        this.paymentsService = paymentsService;
     }
-    create(createReservationDto, userId) {
-        return this.reservationRepository.create({
-            ...createReservationDto,
-            timestamp: new Date(),
-            userId,
-        });
+    async create(createReservationDto, userId) {
+        return this.paymentsService
+            .send('create_payment', createReservationDto.charge)
+            .pipe((0, rxjs_1.map)((res) => {
+            return this.reservationRepository.create({
+                ...createReservationDto,
+                invoiceId: res.id,
+                timestamp: new Date(),
+                userId,
+            });
+        }));
     }
-    findAll() {
+    async findAll() {
         return this.reservationRepository.find({});
     }
-    findOne(_id) {
+    async findOne(_id) {
         return this.reservationRepository.findOne({ _id });
     }
-    update(_id, updateReservationDto) {
+    async update(_id, updateReservationDto) {
         return this.reservationRepository.findOneAndUpdate({ _id }, { $set: updateReservationDto });
     }
-    remove(_id) {
+    async remove(_id) {
         return this.reservationRepository.findOneAndDelete({ _id });
     }
 };
 exports.ReservationsService = ReservationsService;
 exports.ReservationsService = ReservationsService = __decorate([
     (0, common_1.Injectable)(),
-    __metadata("design:paramtypes", [typeof (_a = typeof reservations_repository_1.ReservationsRepository !== "undefined" && reservations_repository_1.ReservationsRepository) === "function" ? _a : Object])
+    __param(1, (0, common_1.Inject)(common_2.PAYMENTS_SERVICE)),
+    __metadata("design:paramtypes", [typeof (_a = typeof reservations_repository_1.ReservationsRepository !== "undefined" && reservations_repository_1.ReservationsRepository) === "function" ? _a : Object, typeof (_b = typeof microservices_1.ClientProxy !== "undefined" && microservices_1.ClientProxy) === "function" ? _b : Object])
 ], ReservationsService);
 
 
@@ -451,7 +473,7 @@ let JwtAuthGuard = class JwtAuthGuard {
         })
             .pipe((0, rxjs_1.tap)((res) => {
             context.switchToHttp().getRequest().user = res;
-        }), (0, rxjs_1.map)(() => true));
+        }), (0, rxjs_1.map)(() => true), (0, rxjs_1.catchError)(() => (0, rxjs_1.of)(false)));
     }
 };
 exports.JwtAuthGuard = JwtAuthGuard;
@@ -499,8 +521,9 @@ __exportStar(__webpack_require__(/*! ./services */ "./libs/common/src/constants/
 
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.AUTH_SERVICE = void 0;
+exports.PAYMENTS_SERVICE = exports.AUTH_SERVICE = void 0;
 exports.AUTH_SERVICE = 'auth';
+exports.PAYMENTS_SERVICE = 'payments';
 
 
 /***/ }),
@@ -710,6 +733,89 @@ __exportStar(__webpack_require__(/*! ./current-user.decorator */ "./libs/common/
 
 /***/ }),
 
+/***/ "./libs/common/src/dto/card.dto.ts":
+/*!*****************************************!*\
+  !*** ./libs/common/src/dto/card.dto.ts ***!
+  \*****************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CardDto = void 0;
+const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
+class CardDto {
+}
+exports.CardDto = CardDto;
+__decorate([
+    (0, class_validator_1.IsString)(),
+    (0, class_validator_1.IsNotEmpty)(),
+    __metadata("design:type", String)
+], CardDto.prototype, "cvc", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], CardDto.prototype, "exp_month", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], CardDto.prototype, "exp_year", void 0);
+__decorate([
+    (0, class_validator_1.IsCreditCard)(),
+    __metadata("design:type", String)
+], CardDto.prototype, "number", void 0);
+
+
+/***/ }),
+
+/***/ "./libs/common/src/dto/create-charge.dto.ts":
+/*!**************************************************!*\
+  !*** ./libs/common/src/dto/create-charge.dto.ts ***!
+  \**************************************************/
+/***/ (function(__unused_webpack_module, exports, __webpack_require__) {
+
+
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __metadata = (this && this.__metadata) || function (k, v) {
+    if (typeof Reflect === "object" && typeof Reflect.metadata === "function") return Reflect.metadata(k, v);
+};
+var _a;
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.CreateChargeDto = void 0;
+const class_validator_1 = __webpack_require__(/*! class-validator */ "class-validator");
+const class_transformer_1 = __webpack_require__(/*! class-transformer */ "class-transformer");
+const card_dto_1 = __webpack_require__(/*! ./card.dto */ "./libs/common/src/dto/card.dto.ts");
+class CreateChargeDto {
+}
+exports.CreateChargeDto = CreateChargeDto;
+__decorate([
+    (0, class_validator_1.IsDefined)(),
+    (0, class_validator_1.IsNotEmptyObject)(),
+    (0, class_validator_1.ValidateNested)(),
+    (0, class_transformer_1.Type)(() => card_dto_1.CardDto),
+    __metadata("design:type", typeof (_a = typeof card_dto_1.CardDto !== "undefined" && card_dto_1.CardDto) === "function" ? _a : Object)
+], CreateChargeDto.prototype, "card", void 0);
+__decorate([
+    (0, class_validator_1.IsNumber)(),
+    __metadata("design:type", Number)
+], CreateChargeDto.prototype, "amount", void 0);
+
+
+/***/ }),
+
 /***/ "./libs/common/src/dto/index.ts":
 /*!**************************************!*\
   !*** ./libs/common/src/dto/index.ts ***!
@@ -733,6 +839,7 @@ var __exportStar = (this && this.__exportStar) || function(m, exports) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 __exportStar(__webpack_require__(/*! ./user.dto */ "./libs/common/src/dto/user.dto.ts"), exports);
+__exportStar(__webpack_require__(/*! ./create-charge.dto */ "./libs/common/src/dto/create-charge.dto.ts"), exports);
 
 
 /***/ }),
